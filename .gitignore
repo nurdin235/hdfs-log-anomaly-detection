@@ -1,0 +1,7 @@
+HDFS.log 
+HDFS_2k.log 
+preprocessed/ 
+processed/ 
+watch_folder/ 
+.ipynb_checkpoints/ 
+*.npz 
