@@ -10,7 +10,13 @@ ALERTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'alerts', 'alerts_lo
 def save_alerts(results):
     """
     Takes prediction results and saves anomalies
-    to the alerts log file automatically
+    to the alerts log file automatically.
+
+    Severity tiers (based on confidence score):
+        CRITICAL : confidence >= 95  — near-certain threat
+        HIGH     : confidence >= 80  — strong indicator
+        MEDIUM   : confidence >= 65  — moderate suspicion
+        LOW      : confidence <  65  — weak signal, review advised
     """
     # Filter only anomalies
     anomalies = results[results['Prediction'] == 'Anomaly'].copy()
@@ -19,10 +25,22 @@ def save_alerts(results):
         print(f"  → No anomalies found. No alerts raised.")
         return 0
 
-    # Add severity level based on confidence
-    anomalies['Severity'] = anomalies['Confidence'].apply(
-        lambda x: 'CRITICAL' if x >= 90 else 'HIGH' if x >= 75 else 'MEDIUM'
-    )
+    # ── FIXED: Severity logic now uses 4 tiers with proper thresholds ──
+    def assign_severity(confidence):
+        if confidence >= 95:
+            return 'CRITICAL'
+        elif confidence >= 80:
+            return 'HIGH'
+        elif confidence >= 65:
+            return 'MEDIUM'
+        else:
+            return 'LOW'
+
+    anomalies['Severity'] = anomalies['Confidence'].apply(assign_severity)
+
+    # Add timestamp if not present
+    if 'Timestamp' not in anomalies.columns:
+        anomalies['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # Append to alerts log (create if not exists)
     file_exists = os.path.exists(ALERTS_PATH)
@@ -38,11 +56,13 @@ def save_alerts(results):
     critical = (anomalies['Severity'] == 'CRITICAL').sum()
     high     = (anomalies['Severity'] == 'HIGH').sum()
     medium   = (anomalies['Severity'] == 'MEDIUM').sum()
+    low      = (anomalies['Severity'] == 'LOW').sum()
 
     print(f"  → 🚨 ALERTS RAISED: {len(anomalies)} anomalies detected")
     print(f"     CRITICAL : {critical}")
     print(f"     HIGH     : {high}")
     print(f"     MEDIUM   : {medium}")
+    print(f"     LOW      : {low}")
     print(f"  → Alerts saved to: alerts/alerts_log.csv")
 
     return len(anomalies)
@@ -57,13 +77,15 @@ def get_alerts_summary():
 
     df = pd.read_csv(ALERTS_PATH)
 
+    # ── FIXED: Summary now includes LOW severity + formatted numbers ──
     summary = {
         'total_alerts'   : len(df),
-        'critical'       : (df['Severity'] == 'CRITICAL').sum(),
-        'high'           : (df['Severity'] == 'HIGH').sum(),
-        'medium'         : (df['Severity'] == 'MEDIUM').sum(),
+        'critical'       : int((df['Severity'] == 'CRITICAL').sum()),
+        'high'           : int((df['Severity'] == 'HIGH').sum()),
+        'medium'         : int((df['Severity'] == 'MEDIUM').sum()),
+        'low'            : int((df['Severity'] == 'LOW').sum()),
         'latest_alert'   : df['Timestamp'].max(),
-        'files_processed': df['Source_File'].nunique()
+        'files_processed': int(df['Source_File'].nunique())
     }
 
     return summary, df

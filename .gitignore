@@ -1,7 +1,9 @@
-HDFS.log 
-HDFS_2k.log 
-preprocessed/ 
-processed/ 
-watch_folder/ 
-.ipynb_checkpoints/ 
-*.npz 
+*.log
+.ipynb_checkpoints/
+Untitled.ipynb
+preprocessed/
+processed/
+watch_folder/
+**/__pycache__/
+dashboard/hdfs-log-anomaly-detection/
+hdfs-log-anomaly-detection/
