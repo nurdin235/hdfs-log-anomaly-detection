@@ -9,6 +9,11 @@ node_modules/
 test-results/
 playwright-report/
 Untitled.ipynb
+AppliedML-Presentation_Group_2.pptx
+HDFS_Anomaly_Detection_Report_1.docx
+me.txt
+prompt.txt
+run_results_*.csv
 preprocessed/
 processed/
 watch_folder/

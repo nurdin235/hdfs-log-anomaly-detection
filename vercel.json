@@ -1,11 +1,11 @@
 {
-  "$schema": "https://vercel.sh",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "functions": {
     "api/analyze.py": {
       "maxDuration": 60,
-      "includeFiles": "model/**",
-      "excludeFiles": "{.git,.ipynb_checkpoints,**/__pycache__,alerts,dashboard,scripts,src}/**|*.{csv,ipynb,pptx,docx,png,txt}"
+      "includeFiles": "{model/**,src/**}",
+      "excludeFiles": "{.git/**,.ipynb_checkpoints/**,**/__pycache__/**,alerts/**,dashboard/**,scripts/**,assets/**,*.ipynb,*.pptx,*.docx,*.png,*.txt,*.csv}"
     }
   },
   "headers": [
