@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101416">
+  <meta name="description" content="HDFS log anomaly detection dashboard powered by a trained Random Forest model.">
+  <title>HDFS Anomaly Detection | UBa SOC</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark"><i data-lucide="shield-check"></i></span>
+        <div>
+          <strong>UBa SOC</strong>
+          <span>HDFS Detection</span>
+        </div>
+      </div>
+
+      <div class="system-state">
+        <span class="status-dot" id="statusDot"></span>
+        <div>
+          <strong id="statusLabel">Connecting</strong>
+          <span id="statusDetail">Checking model runtime</span>
+        </div>
+      </div>
+
+      <nav class="nav-list" aria-label="Dashboard navigation">
+        <button class="nav-item active" type="button" data-view="dashboard">
+          <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+        </button>
+        <button class="nav-item" type="button" data-view="analyze">
+          <i data-lucide="scan-search"></i><span>Upload &amp; Analyse</span>
+        </button>
+        <button class="nav-item" type="button" data-view="alerts">
+          <i data-lucide="bell-ring"></i><span>Alerts Log</span>
+          <span class="nav-count" id="navAlertCount">0</span>
+        </button>
+        <button class="nav-item" type="button" data-view="model">
+          <i data-lucide="brain-circuit"></i><span>Model Info</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span>Centre for Cybersecurity &amp;<br>Mathematical Cryptology</span>
+        <strong>University of Bamenda</strong>
+        <span>Academic Year 2025-2026</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="mobileMenu" type="button" aria-label="Open navigation">
+          <i data-lucide="menu"></i>
+        </button>
+        <div>
+          <p class="eyebrow">Security Operations Centre</p>
+          <h1 id="pageTitle">Dashboard</h1>
+        </div>
+        <div class="topbar-meta">
+          <span id="currentDate"></span>
+          <span class="runtime-pill" id="runtimePill">
+            <span class="status-dot small" id="topStatusDot"></span>
+            <span id="topStatusLabel">Checking runtime</span>
+          </span>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="section-heading">
+          <div>
+            <h2>Detection overview</h2>
+            <p>Analysis history stored on this device</p>
+          </div>
+          <button class="secondary-button" type="button" data-view-target="analyze">
+            <i data-lucide="upload"></i>New analysis
+          </button>
+        </div>
+
+        <div class="metric-grid">
+          <article class="metric-card">
+            <span class="metric-icon cyan"><i data-lucide="shield-alert"></i></span>
+            <div><span>Total alerts</span><strong id="metricAlerts">0</strong><small>Detected anomalies</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon red"><i data-lucide="triangle-alert"></i></span>
+            <div><span>Critical</span><strong id="metricCritical">0</strong><small>Immediate review</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon green"><i data-lucide="files"></i></span>
+            <div><span>Files processed</span><strong id="metricFiles">0</strong><small>Completed analyses</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon amber"><i data-lucide="clock-3"></i></span>
+            <div><span>Latest alert</span><strong class="metric-date" id="metricLatest">None</strong><small>Most recent detection</small></div>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel severity-panel">
+            <div class="panel-heading">
+              <div><h3>Severity distribution</h3><p>Alert confidence tiers</p></div>
+              <span class="panel-total" id="severityTotal">0 alerts</span>
+            </div>
+            <div class="severity-visual">
+              <div class="donut" id="severityDonut">
+                <div><strong id="donutValue">0</strong><span>total</span></div>
+              </div>
+              <div class="severity-list">
+                <div class="severity-row">
+                  <span><b class="legend red-bg"></b>Critical</span><strong id="severityCritical">0</strong>
+                  <div class="bar-track"><i class="red-bg" id="barCritical"></i></div>
+                </div>
+                <div class="severity-row">
+                  <span><b class="legend orange-bg"></b>High</span><strong id="severityHigh">0</strong>
+                  <div class="bar-track"><i class="orange-bg" id="barHigh"></i></div>
+                </div>
+                <div class="severity-row">
+                  <span><b class="legend amber-bg"></b>Medium</span><strong id="severityMedium">0</strong>
+                  <div class="bar-track"><i class="amber-bg" id="barMedium"></i></div>
+                </div>
+                <div class="severity-row">
+                  <span><b class="legend cyan-bg"></b>Low</span><strong id="severityLow">0</strong>
+                  <div class="bar-track"><i class="cyan-bg" id="barLow"></i></div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <div><h3>Recent alerts</h3><p>Latest anomalous sessions</p></div>
+              <button class="text-button" type="button" data-view-target="alerts">View all<i data-lucide="arrow-right"></i></button>
+            </div>
+            <div class="table-wrap compact">
+              <table>
+                <thead><tr><th>Block ID</th><th>Severity</th><th>Score</th><th>Time</th></tr></thead>
+                <tbody id="recentAlertsBody"></tbody>
+              </table>
+              <div class="empty-state" id="recentEmpty">
+                <i data-lucide="shield-check"></i>
+                <strong>No alerts recorded</strong>
+                <span>Run the included sample or upload an HDFS log.</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel runs-panel">
+          <div class="panel-heading">
+            <div><h3>Analysis activity</h3><p>Recent files processed by the model</p></div>
+          </div>
+          <div class="run-list" id="runList"></div>
+          <div class="empty-state horizontal" id="runsEmpty">
+            <i data-lucide="activity"></i>
+            <span>No analysis activity on this device.</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-analyze">
+        <div class="section-heading">
+          <div>
+            <h2>Analyse HDFS logs</h2>
+            <p>Structured CSV or E1-E29 feature matrix, up to 4 MB</p>
+          </div>
+          <button class="secondary-button" id="sampleButton" type="button">
+            <i data-lucide="flask-conical"></i>Use included sample
+          </button>
+        </div>
+
+        <div class="analyze-layout">
+          <div>
+            <article class="upload-panel" id="dropZone">
+              <input id="fileInput" type="file" accept=".csv,.log,text/csv" hidden>
+              <span class="upload-icon"><i data-lucide="file-up"></i></span>
+              <h3>Drop an HDFS log file</h3>
+              <p>or select a CSV from your computer</p>
+              <button class="primary-button" id="browseButton" type="button">Choose file</button>
+            </article>
+
+            <article class="selected-file hidden" id="selectedFile">
+              <span class="file-icon"><i data-lucide="file-spreadsheet"></i></span>
+              <div><strong id="selectedFileName"></strong><span id="selectedFileMeta"></span></div>
+              <button class="icon-button" id="removeFile" type="button" aria-label="Remove selected file"><i data-lucide="x"></i></button>
+            </article>
+
+            <button class="primary-button analyze-button" id="analyzeButton" type="button" disabled>
+              <i data-lucide="scan-search"></i><span>Run anomaly analysis</span>
+            </button>
+
+            <article class="processing-panel hidden" id="processingPanel">
+              <div class="processing-head">
+                <span class="spinner"></span>
+                <div><strong id="processingTitle">Analysing log sessions</strong><span id="processingText">Loading the model runtime...</span></div>
+              </div>
+              <div class="progress-track"><i id="progressBar"></i></div>
+            </article>
+
+            <article class="error-panel hidden" id="analysisError">
+              <i data-lucide="circle-x"></i>
+              <div><strong>Analysis could not be completed</strong><span id="analysisErrorText"></span></div>
+            </article>
+          </div>
+
+          <aside class="format-panel">
+            <h3>Accepted input</h3>
+            <div class="format-item">
+              <span>01</span>
+              <div><strong>Structured HDFS log</strong><p><code>EventId</code> plus <code>BlockId</code> or <code>Content</code></p></div>
+            </div>
+            <div class="format-item">
+              <span>02</span>
+              <div><strong>Feature matrix</strong><p><code>BlockId</code> and event counts <code>E1</code> through <code>E29</code></p></div>
+            </div>
+            <div class="privacy-note"><i data-lucide="lock-keyhole"></i><span>Uploads are processed in memory and are not retained by the server.</span></div>
+          </aside>
+        </div>
+
+        <div class="results-section hidden" id="resultsSection">
+          <div class="section-heading result-heading">
+            <div><p class="eyebrow">Analysis complete</p><h2 id="resultFileName">Results</h2></div>
+            <button class="secondary-button" id="downloadResults" type="button"><i data-lucide="download"></i>Download CSV</button>
+          </div>
+          <div class="metric-grid result-metrics">
+            <article class="metric-card"><span class="metric-icon cyan"><i data-lucide="database"></i></span><div><span>Sessions</span><strong id="resultTotal">0</strong><small>Analysed</small></div></article>
+            <article class="metric-card"><span class="metric-icon green"><i data-lucide="circle-check"></i></span><div><span>Normal</span><strong id="resultNormal">0</strong><small>Expected activity</small></div></article>
+            <article class="metric-card"><span class="metric-icon red"><i data-lucide="shield-alert"></i></span><div><span>Anomalies</span><strong id="resultAnomalies">0</strong><small>Alerts generated</small></div></article>
+            <article class="metric-card"><span class="metric-icon amber"><i data-lucide="gauge"></i></span><div><span>Anomaly rate</span><strong id="resultRate">0%</strong><small>Of sessions</small></div></article>
+          </div>
+          <article class="panel">
+            <div class="panel-heading">
+              <div><h3>Session results</h3><p>Random Forest anomaly probability</p></div>
+              <div class="table-actions">
+                <div class="search-field"><i data-lucide="search"></i><input id="resultSearch" type="search" placeholder="Search block ID"></div>
+                <select id="resultFilter" aria-label="Filter prediction"><option value="all">All sessions</option><option value="Anomaly">Anomalies</option><option value="Normal">Normal</option></select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Block ID</th><th>Prediction</th><th>Anomaly score</th><th>Severity</th><th>Timestamp</th></tr></thead>
+                <tbody id="resultsBody"></tbody>
+              </table>
+              <div class="empty-state" id="resultsEmpty"><i data-lucide="search-x"></i><span>No sessions match these filters.</span></div>
+            </div>
+            <div class="table-footer"><span id="resultCount"></span><button class="text-button" id="showMoreResults" type="button">Show more</button></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-alerts">
+        <div class="section-heading">
+          <div><h2>Alerts log</h2><p>Anomalies from analyses completed on this device</p></div>
+          <div class="heading-actions">
+            <button class="secondary-button" id="downloadAlerts" type="button"><i data-lucide="download"></i>Export CSV</button>
+            <button class="danger-button" id="clearHistory" type="button"><i data-lucide="trash-2"></i>Clear history</button>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="alert-toolbar">
+            <div class="search-field"><i data-lucide="search"></i><input id="alertSearch" type="search" placeholder="Search block or file"></div>
+            <select id="severityFilter" aria-label="Filter severity">
+              <option value="all">All severities</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option>
+            </select>
+            <select id="fileFilter" aria-label="Filter source file"><option value="all">All files</option></select>
+          </div>
+          <div class="alert-summary" id="alertSummary"></div>
+          <div class="table-wrap alerts-table">
+            <table>
+              <thead><tr><th>Block ID</th><th>Severity</th><th>Score</th><th>Source file</th><th>Timestamp</th></tr></thead>
+              <tbody id="alertsBody"></tbody>
+            </table>
+            <div class="empty-state" id="alertsEmpty"><i data-lucide="bell-off"></i><strong>No alerts found</strong><span>Adjust the filters or run an analysis.</span></div>
+          </div>
+          <div class="table-footer"><span id="alertCount"></span><button class="text-button" id="showMoreAlerts" type="button">Show more</button></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-model">
+        <div class="section-heading">
+          <div><h2>Model information</h2><p>Training, evaluation, and feature profile</p></div>
+          <span class="verified-badge"><i data-lucide="badge-check"></i>Model artifact verified</span>
+        </div>
+
+        <div class="model-grid">
+          <article class="model-card primary-model">
+            <div class="model-title"><span class="metric-icon cyan"><i data-lucide="trees"></i></span><div><p>Primary model</p><h3>Random Forest</h3></div><span class="model-tag">Production</span></div>
+            <div class="model-stats"><div><span>Accuracy</span><strong>99.99%</strong></div><div><span>F1-score</span><strong>0.9981</strong></div><div><span>Recall</span><strong>1.00</strong></div></div>
+            <dl><div><dt>Estimators</dt><dd>100 trees</dd></div><div><dt>Input features</dt><dd>29 event counts</dd></div><div><dt>Post-SMOTE train set</dt><dd>781,510 sessions</dd></div><div><dt>False alarms</dt><dd>15</dd></div></dl>
+          </article>
+          <article class="model-card">
+            <div class="model-title"><span class="metric-icon amber"><i data-lucide="git-compare-arrows"></i></span><div><p>Baseline</p><h3>Isolation Forest</h3></div><span class="model-tag neutral">Reference</span></div>
+            <div class="model-stats"><div><span>Accuracy</span><strong>98.22%</strong></div><div><span>F1-score</span><strong>0.6590</strong></div><div><span>Recall</span><strong>0.59</strong></div></div>
+            <dl><div><dt>Estimators</dt><dd>100 trees</dd></div><div><dt>Input features</dt><dd>29 event counts</dd></div><div><dt>Learning type</dt><dd>Unsupervised</dd></div><div><dt>False alarms</dt><dd>977</dd></div></dl>
+          </article>
+        </div>
+
+        <div class="model-detail-grid">
+          <article class="panel feature-panel">
+            <div class="panel-heading"><div><h3>Feature importance</h3><p>Most influential HDFS events</p></div></div>
+            <img src="/feature_importance.png" alt="Random Forest feature importance chart">
+          </article>
+          <article class="panel">
+            <div class="panel-heading"><div><h3>Dataset profile</h3><p>LogHub HDFS v1</p></div></div>
+            <div class="dataset-stat"><span>Total sessions</span><strong>575,061</strong></div>
+            <div class="dataset-bar"><i class="normal-segment"></i><i class="anomaly-segment"></i></div>
+            <div class="dataset-legend"><span><b class="green-bg"></b>Normal <strong>558,223</strong><small>97.1%</small></span><span><b class="red-bg"></b>Anomaly <strong>16,838</strong><small>2.9%</small></span></div>
+            <div class="model-note"><i data-lucide="check-check"></i><span>SMOTE was applied to the training set only. Evaluation used the untouched stratified test set.</span></div>
+          </article>
+        </div>
+
+        <article class="panel">
+          <div class="panel-heading"><div><h3>Alert severity thresholds</h3><p>Based on predicted anomaly probability</p></div></div>
+          <div class="threshold-grid">
+            <div><span class="severity-badge critical">Critical</span><strong>&ge; 95%</strong><small>Immediate response</small></div>
+            <div><span class="severity-badge high">High</span><strong>80-94%</strong><small>Prompt investigation</small></div>
+            <div><span class="severity-badge medium">Medium</span><strong>65-79%</strong><small>Scheduled review</small></div>
+            <div><span class="severity-badge low">Low</span><strong>&lt; 65%</strong><small>Periodic monitoring</small></div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <div class="toast" id="toast"><i data-lucide="circle-check"></i><span id="toastText"></span></div>
+</body>
+</html>

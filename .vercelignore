@@ -1,0 +1,17 @@
+.git/
+.ipynb_checkpoints/
+**/__pycache__/
+*.pyc
+*.ipynb
+*.pptx
+*.docx
+me.txt
+prompt.txt
+run_results_*.csv
+alerts/
+dashboard/
+scripts/
+iso_confusion_matrix.png
+model_comparison.png
+rf_confusion_matrix.png
+HDFS_2k.log_templates.csv

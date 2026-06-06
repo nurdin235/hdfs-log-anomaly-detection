@@ -1,5 +1,13 @@
 *.log
+*.npz
+*.py[cod]
 .ipynb_checkpoints/
+.vercel/
+.venv/
+venv/
+node_modules/
+test-results/
+playwright-report/
 Untitled.ipynb
 preprocessed/
 processed/

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "functions": {
+    "api/analyze.py": {
+      "maxDuration": 60,
+      "includeFiles": "model/**",
+      "excludeFiles": "{.git/**,.ipynb_checkpoints/**,**/__pycache__/**,*.ipynb,*.pptx,*.docx,alerts/**,dashboard/**,scripts/**,run_results_*.csv,*.png,HDFS_demo_feature_matrix.csv,HDFS_2k.log_structured.csv,HDFS_2k.log_templates.csv,src/watcher.py,src/alerting.py,me.txt,prompt.txt}"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    }
+  ]
+}

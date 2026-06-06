@@ -1,137 +1,168 @@
-# ── pipeline.py ───────────────────────────────────────────────
-# Feature extraction and prediction pipeline
-# Location: hdfs_project/src/pipeline.py
+"""Feature extraction and inference for HDFS anomaly detection."""
 
-import pandas as pd
-import numpy as np
-import joblib
+from functools import lru_cache
+from pathlib import Path
+from typing import BinaryIO, Union
 import os
 import re
-from datetime import datetime
 
-# ── MODEL PATHS ───────────────────────────────────────────────
-MODEL_PATH    = os.path.join(os.path.dirname(__file__), '..', 'model', 'rf_model.pkl')
-FEATURES_PATH = os.path.join(os.path.dirname(__file__), '..', 'model', 'feature_cols.pkl')
-
-# ── LOAD MODEL ONCE AT STARTUP ────────────────────────────────
-rf_model     = joblib.load(MODEL_PATH)
-feature_cols = joblib.load(FEATURES_PATH)
-
-print(f"[pipeline] ✅ Model loaded: {MODEL_PATH}")
-print(f"[pipeline] ✅ Features loaded: {len(feature_cols)} columns")
+import joblib
+import pandas as pd
 
 
-# ── HELPER FUNCTIONS ──────────────────────────────────────────
+ROOT_DIR = Path(__file__).resolve().parents[1]
+MODEL_PATH = ROOT_DIR / "model" / "rf_model.pkl"
+FEATURES_PATH = ROOT_DIR / "model" / "feature_cols.pkl"
+BLOCK_PATTERN = re.compile(r"blk_-?\d+")
+
+DataSource = Union[str, os.PathLike, BinaryIO, pd.DataFrame]
+
+
+@lru_cache(maxsize=1)
+def load_model_assets():
+    """Load and cache model artifacts once per process or function instance."""
+    model = joblib.load(MODEL_PATH)
+    feature_columns = list(joblib.load(FEATURES_PATH))
+    return model, feature_columns
+
+
+def get_feature_columns():
+    """Return the ordered feature names expected by the trained model."""
+    _, feature_columns = load_model_assets()
+    return feature_columns
+
 
 def extract_block_id(content):
-    """Extract BlockId from log content string"""
-    match = re.search(r'blk_-?\d+', str(content))
+    """Extract an HDFS block identifier from a log content value."""
+    match = BLOCK_PATTERN.search(str(content))
     return match.group(0) if match else None
 
 
-def extract_features(log_file_path):
+def _read_dataframe(source: DataSource) -> pd.DataFrame:
+    if isinstance(source, pd.DataFrame):
+        return source.copy()
+
+    try:
+        return pd.read_csv(source)
+    except UnicodeDecodeError as exc:
+        raise ValueError("The uploaded file must be a UTF-8 encoded CSV.") from exc
+    except pd.errors.EmptyDataError as exc:
+        raise ValueError("The uploaded CSV is empty.") from exc
+    except pd.errors.ParserError as exc:
+        raise ValueError(f"The uploaded CSV could not be parsed: {exc}") from exc
+
+
+def extract_features(source: DataSource):
     """
-    Reads a structured CSV log file and extracts
-    event count features for each session (BlockId).
+    Build one E1-E29 event-count vector per HDFS block session.
 
-    Supports two input formats:
-      1. Pre-computed feature matrix (has E1..E29 columns)
-      2. Raw structured log with EventId and Content columns
+    Supported input formats:
+    1. A feature matrix containing every trained feature column.
+    2. A structured HDFS log containing EventId and either BlockId or Content.
     """
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Reading: {log_file_path}")
-    df = pd.read_csv(log_file_path)
-    print(f"  → Loaded {len(df)} log lines")
+    dataframe = _read_dataframe(source)
+    _, feature_columns = load_model_assets()
 
-    # ── Case 1: Already a feature matrix ──────────────────────
-    if all(col in df.columns for col in feature_cols):
-        print("  → Feature matrix detected directly")
-        X = df[feature_cols].fillna(0)
-        block_ids = df['BlockId'] if 'BlockId' in df.columns \
-                    else pd.Series(range(len(df)))
-        return X, block_ids
+    if dataframe.empty:
+        raise ValueError("The uploaded CSV contains headers but no data rows.")
 
-    # ── Case 2: Raw structured log ────────────────────────────
-    if 'EventId' not in df.columns:
+    if all(column in dataframe.columns for column in feature_columns):
+        features = (
+            dataframe[feature_columns]
+            .apply(pd.to_numeric, errors="coerce")
+            .fillna(0)
+        )
+        if "BlockId" in dataframe.columns:
+            block_ids = dataframe["BlockId"].fillna("unknown").astype(str)
+        else:
+            block_ids = pd.Series(
+                (f"session_{index + 1}" for index in range(len(dataframe))),
+                index=dataframe.index,
+            )
+        return features, block_ids
+
+    if "EventId" not in dataframe.columns:
         raise ValueError(
-            "Log file must have an 'EventId' column or pre-computed "
-            "feature columns (E1-E29). Please check your file format."
+            "Expected an EventId column or a feature matrix with columns E1-E29."
         )
 
-    # Extract BlockId from Content column if not already present
-    if 'BlockId' not in df.columns:
-        if 'Content' not in df.columns:
+    dataframe["EventId"] = dataframe["EventId"].astype(str).str.strip()
+
+    if "BlockId" not in dataframe.columns:
+        if "Content" not in dataframe.columns:
             raise ValueError(
-                "Log file must have either a 'BlockId' column or a "
-                "'Content' column to extract Block IDs from."
+                "A structured log must include BlockId or Content so sessions "
+                "can be identified."
             )
-        print("  → Extracting BlockId from Content column...")
-        df['BlockId'] = df['Content'].apply(extract_block_id)
-        before = len(df)
-        df = df[df['BlockId'].notna()].copy()
-        skipped = before - len(df)
-        print(f"  → Found {df['BlockId'].nunique()} unique Block IDs "
-              f"({skipped} lines skipped — no Block ID found)")
+        dataframe["BlockId"] = dataframe["Content"].map(extract_block_id)
 
-    # Build event count matrix per BlockId session
-    print("  → Building event count matrix per session...")
-    pivot = df.groupby(['BlockId', 'EventId']).size().unstack(fill_value=0)
+    dataframe = dataframe[dataframe["BlockId"].notna()].copy()
+    if dataframe.empty:
+        raise ValueError("No HDFS block IDs were found in the uploaded log.")
 
-    # Ensure all training feature columns exist — fill missing with 0
-    for col in feature_cols:
-        if col not in pivot.columns:
-            pivot[col] = 0
+    dataframe["BlockId"] = dataframe["BlockId"].astype(str)
+    event_counts = (
+        dataframe.groupby(["BlockId", "EventId"], sort=False)
+        .size()
+        .unstack(fill_value=0)
+    )
 
-    # Select only the training feature columns in the correct order
-    X         = pivot[feature_cols].fillna(0)
-    block_ids = pivot.index
+    for column in feature_columns:
+        if column not in event_counts.columns:
+            event_counts[column] = 0
 
-    print(f"  → Sessions extracted : {len(X)}")
-    print(f"  → Features aligned   : {X.shape[1]}")
+    features = event_counts[feature_columns].fillna(0)
+    if features.empty:
+        raise ValueError("No analysable HDFS sessions were found in the file.")
 
-    if len(X) > 0:
-        sample = dict(X.iloc[0][X.iloc[0] > 0].head(5))
-        print(f"  → Feature sample     : {sample}")
-
-    return X, block_ids
+    return features, features.index
 
 
-# ── MAIN PREDICTION FUNCTION ──────────────────────────────────
+def _anomaly_probability(model, features):
+    class_values = list(model.classes_)
+    for anomaly_label in (1, "1", "Anomaly", "anomaly"):
+        if anomaly_label in class_values:
+            return model.predict_proba(features)[:, class_values.index(anomaly_label)]
+    raise ValueError("The model does not expose a recognised anomaly class.")
+
+
+def predict_dataframe(dataframe: pd.DataFrame, source_name="uploaded.csv"):
+    """Run inference for an in-memory DataFrame."""
+    model, _ = load_model_assets()
+    features, block_ids = extract_features(dataframe)
+
+    predictions = model.predict(features)
+    probabilities = _anomaly_probability(model, features)
+    anomaly_labels = {1, "1", "Anomaly", "anomaly"}
+    timestamp = pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds")
+
+    return pd.DataFrame(
+        {
+            "BlockId": [str(value) for value in block_ids],
+            "Prediction": [
+                "Anomaly" if value in anomaly_labels else "Normal"
+                for value in predictions
+            ],
+            "Confidence": (probabilities * 100).round(2),
+            "Timestamp": timestamp,
+            "Source_File": Path(source_name).name,
+        }
+    )
+
 
 def predict(log_file_path):
-    """
-    Main prediction function.
-    Takes a log file path → returns DataFrame with results.
+    """Run inference for a CSV path, preserving the original public API."""
+    dataframe = _read_dataframe(log_file_path)
+    return predict_dataframe(dataframe, source_name=Path(log_file_path).name)
 
-    Returns columns:
-        BlockId     — session identifier
-        Prediction  — 'Anomaly' or 'Normal'
-        Confidence  — model confidence score (0–100, 2 decimal places)
-        Timestamp   — time of prediction
-        Source_File — name of the input file
-    """
-    X, block_ids = extract_features(log_file_path)
 
-    # Get predictions and probabilities
-    predictions   = rf_model.predict(X)
-    probabilities = rf_model.predict_proba(X)[:, 1]  # probability of Anomaly class
-
-    # Build results DataFrame
-    results = pd.DataFrame({
-        'BlockId'    : block_ids,
-        'Prediction' : ['Anomaly' if p == 1 else 'Normal' for p in predictions],
-        'Confidence' : (probabilities * 100).round(2),
-        'Timestamp'  : datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'Source_File': os.path.basename(log_file_path)
-    })
-
-    # Summary log
-    total     = len(results)
-    anomalies = (results['Prediction'] == 'Anomaly').sum()
-    normals   = total - anomalies
-
-    print(f"  → Total sessions  : {total}")
-    print(f"  → Normal          : {normals}")
-    print(f"  → Anomalies       : {anomalies}")
-    print(f"  → Anomaly rate    : {(anomalies/total*100):.2f}%")
-
-    return results
+def get_model_status():
+    """Return serialisable runtime metadata for health checks."""
+    model, feature_columns = load_model_assets()
+    return {
+        "ready": True,
+        "algorithm": type(model).__name__,
+        "trees": int(getattr(model, "n_estimators", 0)),
+        "features": len(feature_columns),
+        "model_file": MODEL_PATH.name,
+    }
